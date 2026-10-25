@@ -1,0 +1,184 @@
+---
+title: "EDS 223 Homework Assignment 2"
+subtitle: "Exploring patterns of environmental justice"
+author: "Rachel Miller"
+date: 2026-10-24
+format:
+  pdf:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Load Packages and Source Functions
+```{r}
+library(tidyverse)
+library(sf)
+library(stars)
+library(tmap)
+library(here)
+library(gt)
+```
+
+## Import Data
+
+```{r}
+# Read in HOLC grade designations for Los Angeles
+redline_LA <- sf::st_read(here::here("data", "mapping-inequality", "mapping-inequality-los-angeles.json"))
+
+# Read in ejscreen data 
+ej_screen <- sf::st_read(here::here("data", "ejscreen", "EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
+
+# Read in crash data
+crashes <- read_csv(here::here("data", "SWITRS_LA", "Crashes.csv"))
+```
+
+```{r}
+# Filter to Los Angeles
+los_angeles <- ej_screen |> 
+  dplyr::filter(CNTY_NAME == 'Los Angeles County')
+```
+
+## Part 1: Legacy of redlining in current environmental (in)justice
+```{r}
+# Create a map of historical redlining neighborhoods 
+grade_colors <- c("#0DB82A", "#0D3DB8","#E0D924","#EB340E")
+
+tm_shape(redline_LA) +
+   tm_polygons(
+    fill = 'grade',
+    fill.scale = tm_scale(values = grade_colors),
+    fill.legend = tm_legend(title = "HOLC Grade")) +
+    tm_basemap() +
+    tm_title("Fig.1 : Historical HOLC Grade Rankings in Los Angeles") +
+  tm_scalebar() +
+  tm_compass(position = c("left", "top"))
+
+```
+
+```{r}
+# Match crs of redline_LA and los_angeles 
+st_crs(redline_LA) == st_crs(los_angeles)
+
+redline_LA_transform <- st_transform(redline_LA, crs = st_crs(los_angeles))
+
+# Verify that crs match
+if(st_crs(redline_LA) == st_crs(los_angeles)){
+  print("CRS MATCH")
+}else{
+  warning("CRS NOT A MATCH")
+}
+
+# Combine datasets
+redline_joined <- st_join(redline_LA_transform, los_angeles)
+```
+```{r}
+# Summarise percentage of census block groups in each HOLC grade
+percent_HOLC <- redline_joined |> st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarise(percentage = n()/nrow(redline_joined) * 100)
+
+percent_HOLC |> 
+  gt() |> 
+    tab_header(title = md("Percentage of Census Block Groups in each HOLC Grade"))
+```
+
+```{r}
+# Check for NAs
+sum(is.na(redline_joined$P_LOWINCPCT))
+sum(is.na(redline_joined$P_PM25))
+sum(is.na(redline_joined$P_LIFEEXPPCT))
+
+# Calculate mean percentage low income population in each HOLC grade
+mean_lowinc <- redline_joined |> 
+  group_by(grade) |> 
+  summarise(mean_low_inc_PCT = mean(P_LOWINCPCT)) |> 
+  st_drop_geometry()
+
+# Visualize the mean percentage low income population per HOLC grade
+mean_lowinc |> 
+  ggplot(aes(y=mean_low_inc_PCT, x=grade)) +
+  geom_bar(stat="identity", fill = "#862C4D") +
+  labs(title = "Fig.2 : Average Percent Low Income Population Per HOLC Grade", x = "HOLC Grade", y = "Average Percentage Low Income")
+
+# Calculate mean percentile for Particulate Matter 2.5 for each HOLC grade
+mean_pm25 <- redline_joined |> 
+  group_by(grade) |> 
+  summarise(mean_pm_25 = mean(P_PM25)) |> 
+  st_drop_geometry()
+
+# Visualize the mean percentile for Particulate Matter 2.5 for each HOLC grade
+mean_pm25 |> 
+  ggplot(aes(y=mean_pm_25, x=grade)) +
+  geom_bar(stat="identity", fill = "#507555") +
+  labs(title = "Fig.3: Average Percentile for Particulate Matter 2.5 Per HOLC Grade", x = "HOLC Grade", y = "Average Percentile PM2.5")
+
+# Calculate mean percentile for low life expectancy for each HOLC grade
+mean_life_exp <- redline_joined |> 
+  group_by(grade) |> 
+  summarise(mean_life_exp_pct = mean(P_LIFEEXPPCT, na.rm=TRUE)) |> # drop NAs
+  st_drop_geometry()
+
+# Visualize the mean percentile for low life expectancy for each HOLC grade
+mean_life_exp |> 
+  ggplot(aes(y=mean_life_exp_pct, x=grade)) +
+  geom_bar(stat="identity", fill = "#E18079") +
+  labs(title = "Fig.4 : Average Percentile for Low Life Expectancy Per HOLC Grade", x = "HOLC Grade", y = "Average Percentile Low Life Expectancy")
+```
+
+### Reflection on Results
+Figure 1 shows the distribution of Home Owner’s Loan Corporation (HOLC) grades across the Los Angeles area. In the 1930s , the HOLC graded neighborhoods as either A (green), B (blue), C (yellow) or D (red) corresponding to the perceived risk associated with insuring mortgages, known as “redlining”. Figure 2 represents the mean percentage low income population in each grade in Los Angeles. From this figure, a less favorable HOLC grade is associated with a greater percentage of low income. Figures 3 and 4 display the average percentile per HOLC grade for particulate matter 2.5 and low life expectancy respectively. There is a marked increase in both percentiles as the grade moves from A to D, suggesting a correlation between a less favorable HOLC grade and less favorable environmental and health outcomes. The increase in average percentile for low life expectancy between grades is more sizable than the increase in average percentile for particulate matter 2.5. This may suggest that other factors than particulate matter 2.5 are also impacting the life expectancy. Overall, Figures 1 to 4 demonstrate some of the lasting impacts of the historical practice of “redlining”.
+
+## Part 2: Legacy of redlining in pedestrian and bike accidents
+
+```{r}
+# Check for NAs in POINT_X/POINT_Y and LONGITUDE/LATITUDE
+sum(crashes$POINT_X == 'NA')
+sum(crashes$POINT_Y == 'NA')
+sum(crashes$LONGITUDE == 'NA')
+sum(crashes$LATITUDE == 'NA')
+
+# Filter crash data to pedestrian or bicycle accidents and filter out NAs
+crashes_filtered <- crashes |> 
+  filter(PEDESTRIAN_ACCIDENT == "Y" | BICYCLE_ACCIDENT == "Y") |> 
+  filter(POINT_X != 'NA')
+
+# Convert X and Y columns to points using WGS 84
+crashes_points <- st_as_sf(crashes_filtered, coords = c("POINT_X", "POINT_Y"), crs = 4326)
+
+# Check if crs match
+st_crs(redline_joined) == st_crs(crashes_points)
+
+# Match crs and verify match
+crashes_transform <- st_transform(crashes_points, crs = st_crs(redline_joined))
+if(st_crs(crashes_transform) != st_crs(redline_joined)) stop('Check if CRS match')
+
+# Subset to points in HOLC regions
+crashes_holc <- crashes_transform[redline_joined,]
+
+# Join data frames by left join
+crashes_lj <- st_join(crashes_holc, redline_joined) |> 
+  select(id = ID, region = grade)
+
+# Calculate number of crashes per HOLC grade region
+crashes_per_grade <- crashes_lj |>
+  filter(!is.na(region)) |> 
+  group_by(region) |>
+  summarise(number_points = n()) |>
+  st_drop_geometry() 
+
+# Calculate percentage crashes in each grade region
+crashes_percent_grade <- crashes_per_grade |> 
+  mutate(Percentage = 100*(number_points/sum(crashes_per_grade$number_points)))
+
+# Convert region column to factors
+crashes_percent_grade$region <- as.factor(crashes_percent_grade$region)
+
+# Visualize the percentage crashes per HOLC region
+crashes_percent_grade |> 
+  ggplot(aes(x = region, y = Percentage, fill = region))+
+  geom_bar(stat = "identity", fill = "#9EC0EB") +
+  labs(title = "Percentage Bike and Pedestrian Crashes and Fatalities Within Each HOLC Grade", x = "Grade" , y = "Percentage Pedestrian and Bicycle Accidents")
+```
