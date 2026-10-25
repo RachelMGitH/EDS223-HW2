@@ -9,13 +9,15 @@ Below is a map of the files stored in this repository.
 
 ```{r}
 EDS223-HW2
-│   .gitignore
 │   README.md
-│   ej_screen.qmd
-|   ej_screen.pdf   
-└───ejscreen_files/
-     └───figure-html/ 
-     └───libs/
+│   HW2.qmd
+│   HW2_files    
+│
+└───.gitignore
+     └───data
+         └───ejscreen
+         └───SWITRS_LA
+         └───mapping-inequality
 ```
 ## Data Access
 The data is sourced from:
