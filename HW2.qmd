@@ -28,7 +28,7 @@ library(gt)
 # Read in HOLC grade designations for Los Angeles
 redline_LA <- sf::st_read(here::here("data", "mapping-inequality", "mapping-inequality-los-angeles.json"))
 
-# Read in ejscreen data 
+# Read in ej 
 ej_screen <- sf::st_read(here::here("data", "ejscreen", "EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
 
 # Read in crash data
@@ -51,7 +51,7 @@ tm_shape(redline_LA) +
     fill = 'grade',
     fill.scale = tm_scale(values = grade_colors),
     fill.legend = tm_legend(title = "HOLC Grade")) +
-    tm_basemap() +
+    tm_basemap("OpenStreetMap") +
     tm_title("Fig.1 : Historical HOLC Grade Rankings in Los Angeles") +
   tm_scalebar() +
   tm_compass(position = c("left", "top"))
@@ -72,7 +72,7 @@ if(st_crs(redline_LA) == st_crs(los_angeles)){
 }
 
 # Combine datasets
-redline_joined <- st_join(redline_LA_transform, los_angeles)
+redline_joined <- st_join(los_angeles,redline_LA_transform)
 ```
 ```{r}
 # Summarise percentage of census block groups in each HOLC grade
@@ -149,23 +149,22 @@ crashes_filtered <- crashes |>
 crashes_points <- st_as_sf(crashes_filtered, coords = c("POINT_X", "POINT_Y"), crs = 4326)
 
 # Check if crs match
-st_crs(redline_joined) == st_crs(crashes_points)
+st_crs(redline_LA_transform) == st_crs(crashes_points)
 
 # Match crs and verify match
-crashes_transform <- st_transform(crashes_points, crs = st_crs(redline_joined))
-if(st_crs(crashes_transform) != st_crs(redline_joined)) stop('Check if CRS match')
+crashes_transform <- st_transform(crashes_points, crs = st_crs(redline_LA_transform))
+if(st_crs(crashes_transform) != st_crs(redline_LA_transform)) stop('Check if CRS match')
 
 # Subset to points in HOLC regions
-crashes_holc <- crashes_transform[redline_joined,]
+crashes_holc <- crashes_transform[redline_LA_transform,]
 
 # Join data frames by left join
-crashes_lj <- st_join(crashes_holc, redline_joined) |> 
-  select(id = ID, region = grade)
+crashes_lj <- st_join(crashes_holc, redline_LA_transform, join = st_within)
 
 # Calculate number of crashes per HOLC grade region
 crashes_per_grade <- crashes_lj |>
-  filter(!is.na(region)) |> 
-  group_by(region) |>
+  filter(!is.na(grade)) |> 
+  group_by(grade) |>
   summarise(number_points = n()) |>
   st_drop_geometry() 
 
@@ -174,11 +173,13 @@ crashes_percent_grade <- crashes_per_grade |>
   mutate(Percentage = 100*(number_points/sum(crashes_per_grade$number_points)))
 
 # Convert region column to factors
-crashes_percent_grade$region <- as.factor(crashes_percent_grade$region)
+crashes_percent_grade$grade <- as.factor(crashes_percent_grade$grade)
 
 # Visualize the percentage crashes per HOLC region
 crashes_percent_grade |> 
-  ggplot(aes(x = region, y = Percentage, fill = region))+
-  geom_bar(stat = "identity", fill = "#9EC0EB") +
-  labs(title = "Percentage Bike and Pedestrian Crashes and Fatalities Within Each HOLC Grade", x = "Grade" , y = "Percentage Pedestrian and Bicycle Accidents")
+  ggplot(aes(x = grade, y = Percentage, fill = grade))+
+  geom_bar(stat = "identity") +
+  labs(title = "Fig. 5: Percentage Bike and Pedestrian Crashes and Fatalities Within Each HOLC Grade", x = "Grade" , y = "Percentage Pedestrian and Bicycle Accidents")
 ```
+
+According to figure 5, the highest proportion of pedestrian and bicycle accidents occur in areas that had an HOLC grade C, and a high proportion are also found in D. This indicates that a less favorable HOLC grade (C or D) is associated with more bike and pedestrian crashes when compared to more favorable HOLC grades (A or B).
